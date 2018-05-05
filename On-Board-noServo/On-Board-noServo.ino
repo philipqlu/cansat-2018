@@ -2,8 +2,10 @@
 /*  RSX for CANSAT-2016
     This is the onboard software for CANSAT-2016 competition (glider)
     Team 6734: RSX from University of Toronto / UTIAS
-    Code Written by Johnny Wang - zeyang.wang@mail.utoronto.ca
+    Code Written by Eric Boszin and Phil
 */
+
+// To do: deffine servos positions and set to those positions
 
 #include <SFE_BMP180.h>
 #include <Wire.h>
@@ -13,6 +15,7 @@
 #include <SPI.h>
 #include <SD.h>
 #include <MPU9250.h>  // https://github.com/bolderflight/MPU9250
+#include <Servo.h>
 
 //////////////////////////// constants //////////////////////////
 
@@ -32,7 +35,7 @@
 #define PIN_SDA A4
 #define PIN_SCL A5
 
-// Servo Positions - TO TEST
+// Servo Positions - TO TEST ------------------------------
 #define
 
 // Altitude - fix
@@ -42,12 +45,15 @@
 // GPS
 #define GPS_UPDATE_TIME 1000
 
-/////////////////////////////////////////// Variables //////////////////////////
+///////////////////////////////// Variables //////////////////////////
 // Global Variables
 uint8_t flight_state;
 float last_alt;
 uint32_t time_now, last_cycle, last_telem_cycle;
 uint16_t next_cycle;
+Servo heatshield_servo;
+Servo HS_servo;
+Servo parashoot_servo;
 
 // BMP180
 SFE_BMP180 bmp180;
@@ -56,10 +62,6 @@ double pressure_baseline; // baseline pressure
 // GPS
 SoftwareSerial serial_gps(gps_TX, gps_RX);
 TinyGPS GPS;
-
-// MPU9250 Sensor
-MPU9250 IMU(Wire,0x68);
-int MPUstatus;
 
 
 /////////////////////////////////////////// Telemetry //////////////////////////
@@ -84,37 +86,43 @@ void setup() {
   pinMode(PIN_SDA, INPUT);
   pinMode(PIN_SCL, INPUT);
 
+
+/****************************************************************
   // Servo
-  pinMode(HEATSHIELD_SERVO, OUTPUT);
-  pinMode(COVER_SERVO, OUTPUT);
-  pinMode(PARASHOOT_SERVO, OUTPUT);
+    heatshield_servo.attach(5);
+    HS_servo.attach(6);
+    parashoot_servo.attach(9);
+//  pinMode(HEATSHIELD_SERVO, OUTPUT);
+//  pinMode(COVER_SERVO, OUTPUT);
+//  pinMode(PARASHOOT_SERVO, OUTPUT);
   // Set defaults for servos
-  servoPosition(, );
-  servoPosition(, );
-  servoPosition(, );
+//  servoPosition(, );
+//  servoPosition(, );
+//  servoPosition(, );
+******************************************************************/
 
   // Buzzer
   pinMode(PIN_BUZZER, OUTPUT);
   pt();
 
   // Other Intitiations
-  flight_state = 0;
+  flight_state = 1;
   last_alt = 0;
   last_cycle = millis();
   last_telem_cycle = last_cycle;
   next_cycle = 0;
   data_comCNT = 0;
 
-  // Tilt sensor
-  MPUstatus = IMU.begin();
-  if (MPUstatus < 0) {
-    Serial.println("IMU initialization unsuccessful");
-    Serial.println("Check IMU wiring or try cycling power");
-    Serial.print("Status: ");
-    Serial.println(MPUstatus);
-    while(1) {}
-  }
-}
+//  // Tilt sensor
+//  MPUstatus = IMU.begin();
+//  if (MPUstatus < 0) {
+//    Serial.println("IMU initialization unsuccessful");
+//    Serial.println("Check IMU wiring or try cycling power");
+//    Serial.print("Status: ");
+//    Serial.println(MPUstatus);
+//    while(1) {}
+//  }
+/}
 
 void loop() {
 
@@ -135,19 +143,18 @@ void loop() {
   }
 
   time_now = millis();
+  
   if (last_cycle > time_now) last_cycle = time_now;
   if (last_telem_cycle > time_now) last_telem_cycle = time_now;
 
   read_gps();
-  if (flight_state == 5) {
-    servoPosition(RWING_SERVO, OPEN_RWING);
-    servoPosition(LWING_SERVO, OPEN_LWING);
-  }
-
+  read_tilt();
+  
   // Get flight status
   if (time_now - next_cycle >= last_cycle ) {
     last_cycle = time_now; //this is put here so that sensor reading and serial writing time are not taken in account of.
 
+    data_temp = (float) read_temp();
     data_pressure = (float) getPressure();
     data_altitude = (float) bmp180.altitude(data_pressure, pressure_baseline);
     get_flight_state();
@@ -156,53 +163,34 @@ void loop() {
 
     ////////////////// switch case depending of flight status /////////////////////
     switch (flight_state) {
-      case 1: // waiting
-        data_pitot = 0;
-        data_temp = read_temp();
+      case 1: // prelaunch
         data_voltage = read_voltage();
         next_cycle = 1000;
         break;
 
       case 2: // ascending
-        data_pitot = 0;
-        data_temp = read_temp();
         data_voltage = read_voltage();
         next_cycle = 200;
         break;
 
-      case 3: // descending
-        //descending
-        data_pitot = 0;
-        data_temp = read_temp();
+      case 3: // stabalizing
+        HS_servo.write(); // write position
         data_voltage = read_voltage();
         next_cycle = 200;
         break;
 
-      case 4: // deploying
-        //deploy
-        servoPosition(RWING_SERVO, FOLD_RWING);
-        servoPosition(LWING_SERVO, FOLD_LWING);
-  //      delay(200);
-        servoPosition(LATCHCAM_SERVO, OPEN_LATCH);
+      case 4: // release
+        heatshield_servo.write(); // write speed to turn
         smartdelay(1000);
-        servoPosition(RWING_SERVO, OPEN_RWING);
-        servoPosition(LWING_SERVO, OPEN_LWING);
-        smartdelay(200);
-        servoPosition(LATCHCAM_SERVO, CAM_ZERO);
-        camera_angle = CAM_ZERO;
+        parashoot_servo.write(); // write position
         break;
 
-      case 5: //gliding
-        //glide
-        data_pitot = read_pitot();
-        data_temp = read_temp();
+      case 5: //descent
         data_voltage = read_voltage();
         next_cycle = 1000;
         break;
 
       case 6: // land
-        data_pitot = 0;
-        data_temp = 0;
         data_voltage = read_voltage();
         pt();
         next_cycle = 1000;
@@ -215,11 +203,9 @@ void loop() {
   }
 }
 
+/****************************************************************
 void get_flight_state() {
-  if (flight_state == 0 && abs(data_altitude) <= ALTITUDE_TOL) {
-    flight_state = 1; // waiting
-  }
-  else if ((flight_state == 1 && ((data_altitude - last_alt) > ALTITUDE_TOL || data_altitude > 400))) {
+  if ((flight_state == 1 && ((data_altitude - last_alt) > ALTITUDE_TOL || data_altitude > 400))) { // think about the conditins to go t second state
     flight_state = 2; //ascending
   }
   else if (flight_state == 2 && (data_altitude - last_alt) < 0 && data_altitude >= ALT_DEPLOY) {
@@ -238,30 +224,29 @@ void get_flight_state() {
     flight_state = 6; //landed
   }
 }
+******************************************************************/
 
 void interpret_command(String command) {
   String com;
 
   com = command.substring(0, 1);
-  if (com.equals("s")) {
-    take_pic();
-  }
-  else if (com.equals("m")) {
-    String theta;
-    theta = command.substring(2);
-    int angle = theta.toInt();
-
-    servoPosition(LATCHCAM_SERVO, angle);
-    camera_angle = angle;
-  }
-  else if (com.equals("f")) {
+  if (com.equals("f")) {
     String com2;
     com2 = command.substring(2);
     int force_com = com2.toInt();
-    if (force_com == 1) {
+    if (force_com == 0) {
+      setup();
+    } if (force_com == 1) {
+      flight_state = 1;
+    } else if (force_com == 2) {
+      flight_state = 2;
+    } else if (force_com == 3) {
       flight_state = 3;
-    }
-    else if (force_com == 2) {
+    } else if (force_com == 4) {
+      flight_state = 4;
+    } else if (force_com == 5) {
+      flight_state = 5;
+    } else if (force_com == 6) {
       flight_state = 6;
     }
   }
@@ -272,9 +257,6 @@ float read_voltage() {
   return (float) voltage / 102.3;
 }
 
-/*
- * Returns pressure from BMP180 in hPa (1 hPa = 100 Pa).
- */
 double getPressure()
 {
   char status;
@@ -301,7 +283,6 @@ double getPressure()
   }
 }
 
-
 double read_temp()
 {
   char status;
@@ -327,7 +308,6 @@ double read_temp()
     }
   }
 }
-
 
 void read_gps() {
 
@@ -358,7 +338,7 @@ void read_gps() {
       data_gpsNUM = GPS.satellites();
       gps.crack_datetime(&year,&month,&day,&hour,&minute,&second,&hundredths); // GPS time
       
-      sprintf(sz, "%02d:%02d:%02d", hour, minute, second);
+      sprintf(data_gpsTime, "%02d:%02d:%02d", hour, minute, second);
   }
 }
 
@@ -370,38 +350,6 @@ static void smartdelay(unsigned long ms)
   {
     read_gps();
   } while (millis() - start < ms);
-}
-
-void take_pic() {
-  cameraconnection.listen();
-  if (! cam.takePicture()) {
-    serial_gps.listen();
-    return;
-  }
-  else {
-    data_comCNT += 1;
-    char filename[8] = "00.JPG";
-    filename[0] = '0' + data_comCNT / 10;
-    filename[1] = '0' + data_comCNT % 10;
-
-    File imgFile = SD.open(filename, FILE_WRITE);
-    uint16_t jpglen = cam.frameLength();
-    byte wCount = 0; // For counting # of writes
-    while (jpglen > 0) {
-      // read 32 bytes at a time;
-      uint8_t *buffer;
-      uint8_t bytesToRead = min(32, jpglen); // change 32 to 64 for a speedup but may not work with all setups!
-      buffer = cam.readPicture(bytesToRead);
-      imgFile.write(buffer, bytesToRead);
-      if (++wCount >= 64) { // Every 2K, give a little feedback so it doesn't appear locked up
-        wCount = 0;
-      }
-      jpglen -= bytesToRead;
-    }
-
-    imgFile.close();
-  }
-  serial_gps.listen();
 }
 
 void pt() {
@@ -417,24 +365,22 @@ void pt() {
   }
 }
 
-void servoPosition(int servopin, int angle)
-{
-  int pulsemicros = (int)11 * angle + 490;
-  for (int i = 0; i < 32; i++) { //gets about 90 degrees movement, call twice or change i<16 to i<32 if 180 needed
-    digitalWrite(servopin, HIGH);
-    delayMicroseconds(pulsemicros);
-    digitalWrite(servopin, LOW);
-    delay(25);
-  }
-}
+//void servoPosition(int servopin, int angle)
+//{
+//  int pulsemicros = (int)11 * angle + 490;
+//  for (int i = 0; i < 32; i++) { //gets about 90 degrees movement, call twice or change i<16 to i<32 if 180 needed
+//    digitalWrite(servopin, HIGH);
+//    delayMicroseconds(pulsemicros);
+//    digitalWrite(servopin, LOW);
+//    delay(25);
+//  }
+//}
 
 void read_tilt() {
   data_tiltX = IMU.getGyroX_rads();
   data_tiltY = IMU.getGyroY_rads();
   data_tiltZ = IMU.getGyroZ_rads();  
 }
-
-
 
 void send_telemetry() {
 
