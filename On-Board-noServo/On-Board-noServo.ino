@@ -64,11 +64,12 @@ int MPUstatus;
 
 /////////////////////////////////////////// Telemetry //////////////////////////
 double data_altitude, data_pressure, data_voltage;
-float data_gpsLAT, data_gpsLONG, data_gpsALT,init_gpsALT;
+float data_gpsLAT, data_gpsLONG, data_gpsALT, data_gpsTime, init_gpsALT;
 float data_pitot, data_temp, data_gpsSPEED;
 float data_tiltX, data_tiltY, data_tiltZ;
 uint8_t data_gpsNUM, data_comCNT;
-
+char data_gpsTime[8];
+byte month, day, hour, minute, second, hundredths;
 
 void setup() {
   //  Serial Begin
@@ -355,6 +356,9 @@ void read_gps() {
       data_gpsALT = GPS.f_altitude()-init_gpsALT;
       data_gpsSPEED = GPS.f_speed_mps();
       data_gpsNUM = GPS.satellites();
+      gps.crack_datetime(&year,&month,&day,&hour,&minute,&second,&hundredths); // GPS time
+      
+      sprintf(sz, "%02d:%02d:%02d", hour, minute, second);
   }
 }
 
@@ -434,27 +438,23 @@ void read_tilt() {
 
 void send_telemetry() {
 
-  Serial.print(data_altitude, 1);
+  Serial.print(data_altitude, 4);
   Serial.print(",");
-  Serial.print(data_pressure / 10, 1);
+  Serial.print(data_pressure / 10, 4);
   Serial.print(",");
-  Serial.print(data_pitot, 1);
-  Serial.print(",");
-  Serial.print(data_temp, 1);
+  Serial.print(data_temp, 3);
   Serial.print(",");
   Serial.print(data_voltage, 2);
+  Serial.print(",");
+  Serial.print(data_gpsTime);
   Serial.print(",");
   Serial.print(data_gpsLAT, 4);
   Serial.print(",");
   Serial.print(data_gpsLONG, 4);
   Serial.print(",");
-  Serial.print(data_gpsALT, 1);
+  Serial.print(data_gpsALT, 4);
   Serial.print(",");
   Serial.print(data_gpsNUM);
-  Serial.print(",");
-  Serial.print(data_gpsSPEED, 1);
-  Serial.print(",");
-  Serial.print(data_comCNT);
   Serial.print(",");
   Serial.print(data_tiltX);
   Serial.print(",");
