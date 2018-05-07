@@ -14,8 +14,10 @@
 #include <Adafruit_VC0706.h>
 #include <SPI.h>
 #include <SD.h>
-#include <MPU9250.h>  // https://github.com/bolderflight/MPU9250
+#include "MPU9250.h"// https://github.com/bolderflight/MPU9250
 #include <Servo.h>
+#include <math.h>
+#include "MadgwickAHRS.h" // https://github.com/arduino-libraries/MadgwickAHRS
 
 //////////////////////////// constants //////////////////////////
 
@@ -45,6 +47,7 @@
 // GPS
 #define GPS_UPDATE_TIME 1000
 
+
 ///////////////////////////////// Variables //////////////////////////
 // Global Variables
 uint8_t flight_state;
@@ -68,10 +71,14 @@ TinyGPS GPS;
 double data_altitude, data_pressure, data_voltage;
 float data_gpsLAT, data_gpsLONG, data_gpsALT, data_gpsTime, init_gpsALT;
 float data_pitot, data_temp, data_gpsSPEED;
-float data_tiltX, data_tiltY, data_tiltZ;
+float gx, gy, gz, ax, ay, az, mx, my, mz; // IMU/MPU data
+
 uint8_t data_gpsNUM, data_comCNT;
 char data_gpsTime[8];
 byte month, day, hour, minute, second, hundredths;
+
+// Madgwick algorithm for estimating orientation from MPU data
+Madgwick madgwick;
 
 void setup() {
   //  Serial Begin
@@ -113,8 +120,9 @@ void setup() {
   next_cycle = 0;
   data_comCNT = 0;
 
-//  // Tilt sensor
-//  MPUstatus = IMU.begin();
+//   Tilt sensor
+  MPU9250 IMU(Wire,0x68);
+  MPUstatus = IMU.begin();
 //  if (MPUstatus < 0) {
 //    Serial.println("IMU initialization unsuccessful");
 //    Serial.println("Check IMU wiring or try cycling power");
@@ -122,7 +130,8 @@ void setup() {
 //    Serial.println(MPUstatus);
 //    while(1) {}
 //  }
-/}
+  
+}
 
 void loop() {
 
@@ -377,9 +386,20 @@ void pt() {
 //}
 
 void read_tilt() {
-  data_tiltX = IMU.getGyroX_rads();
-  data_tiltY = IMU.getGyroY_rads();
-  data_tiltZ = IMU.getGyroZ_rads();  
+  IMU.readSensor();
+  ax = IMU.getAccelX_mss();
+  ay = IMU.getAccelY_mss();
+  az = IMU.getAccelZ_mss();
+  gx = IMU.getGyroX_rads();
+  gy = IMU.getGyroY_rads();
+  gz = IMU.getGyroZ_rads();
+  mx = IMU.getMagX_uT()*pow(10, 6);
+  my = IMU.getMagY_uT()*pow(10, 6);
+  mz = IMU.getMagZ_uT()*pow(10, 6);
+  madgwick.update(gx, gy, gz, ax, ay, az, mx, my, mz);
+//  data_tiltX = madgwick.roll;
+//  data_tiltY = madgwick.pitch;
+//  data_tiltZ = madgwick.yaw;  
 }
 
 void send_telemetry() {
@@ -402,11 +422,11 @@ void send_telemetry() {
   Serial.print(",");
   Serial.print(data_gpsNUM);
   Serial.print(",");
-  Serial.print(data_tiltX);
+  Serial.print(madgwick.roll);
   Serial.print(",");
-  Serial.print(data_tiltY);
+  Serial.print(madgwick.pitch);
   Serial.print(",");
-  Serial.print(data_tiltZ);
+  Serial.print(madgwick.yaw);
   Serial.print(",");
   Serial.print(flight_state);
   Serial.print("\n");
