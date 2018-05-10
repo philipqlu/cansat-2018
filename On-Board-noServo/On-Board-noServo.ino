@@ -37,12 +37,18 @@
 #define PIN_SDA A4
 #define PIN_SCL A5
 
+/*************************************************************
 // Servo Positions - TO TEST ------------------------------
 #define
+*************************************************************/
 
 // Altitude - fix
 #define ALTITUDE_TOL 5
-#define ALT_DEPLOY 410
+#define ALT_DEPLOY 670
+#define DECS_THRESH 0 // set later, make a neg number
+#define EPS 0.1f
+#define REL_DELAY 2
+#define LAND_DELAY 5
 
 // GPS
 #define GPS_UPDATE_TIME 1000
@@ -53,7 +59,7 @@
 uint8_t flight_state;
 float last_alt;
 uint32_t time_now, last_cycle, last_telem_cycle;
-uint16_t next_cycle;
+uint16_t next_cycle, desctimer, HS_timer, REL_timer;
 Servo heatshield_servo;
 Servo HS_servo;
 Servo parashoot_servo;
@@ -99,9 +105,6 @@ void setup() {
     heatshield_servo.attach(5);
     HS_servo.attach(6);
     parashoot_servo.attach(9);
-//  pinMode(HEATSHIELD_SERVO, OUTPUT);
-//  pinMode(COVER_SERVO, OUTPUT);
-//  pinMode(PARASHOOT_SERVO, OUTPUT);
   // Set defaults for servos
 //  servoPosition(, );
 //  servoPosition(, );
@@ -110,7 +113,6 @@ void setup() {
 
   // Buzzer
   pinMode(PIN_BUZZER, OUTPUT);
-  pt();
 
   // Other Intitiations
   flight_state = 1;
@@ -119,17 +121,20 @@ void setup() {
   last_telem_cycle = last_cycle;
   next_cycle = 0;
   data_comCNT = 0;
+  desctimer = 0;
+  HS_timer = 0;
+  REL_timer = 0;
 
 //   Tilt sensor
   MPU9250 IMU(Wire,0x68);
   MPUstatus = IMU.begin();
-//  if (MPUstatus < 0) {
-//    Serial.println("IMU initialization unsuccessful");
-//    Serial.println("Check IMU wiring or try cycling power");
-//    Serial.print("Status: ");
-//    Serial.println(MPUstatus);
-//    while(1) {}
-//  }
+ if (MPUstatus < 0) {
+   Serial.println("IMU initialization unsuccessful");
+   Serial.println("Check IMU wiring or try cycling power");
+   Serial.print("Status: ");
+   Serial.println(MPUstatus);
+   while(1) {}
+ }
   
 }
 
@@ -183,26 +188,34 @@ void loop() {
         break;
 
       case 3: // stabalizing
-        HS_servo.write(); // write position
+        if(HS_timer == 15){
+          HS_servo.write(); // write position
+        }
         data_voltage = read_voltage();
         next_cycle = 200;
+        HS_timer++;
         break;
 
       case 4: // release
-        heatshield_servo.write(); // write speed to turn
-        smartdelay(1000);
+        heatshield_servo.write(180); // write speed to turn
         parashoot_servo.write(); // write position
+        if(REL_timer == 2){
+          heatshield_servo.write(90); // write speed to stop turn
+        }
+        REL_timer++;
+        next_cycle = 1000;
         break;
 
       case 5: //descent
+        if (abs(data_altitude - last_alt) < EPS){
+          desctimer++;
+        }
         data_voltage = read_voltage();
         next_cycle = 1000;
         break;
 
       case 6: // land
-        data_voltage = read_voltage();
-        pt();
-        next_cycle = 1000;
+        landBuzzer();
         break;
     }
     if (time_now - 1000 >= last_telem_cycle) {
@@ -212,28 +225,23 @@ void loop() {
   }
 }
 
-/****************************************************************
 void get_flight_state() {
-  if ((flight_state == 1 && ((data_altitude - last_alt) > ALTITUDE_TOL || data_altitude > 400))) { // think about the conditins to go t second state
+  if (flight_state == 1 && ((data_altitude - last_alt) > ALTITUDE_TOL)) {
     flight_state = 2; //ascending
   }
-  else if (flight_state == 2 && (data_altitude - last_alt) < 0 && data_altitude >= ALT_DEPLOY) {
+  else if (flight_state == 2 && (data_altitude - last_alt) < DECS_THRESH) {
     flight_state = 3; //descending
   }
-  else if (flight_state == 2 && abs(data_altitude) <= ALTITUDE_TOL) {
-    flight_state = 1; // waiting (fails start back to waiting)
+  else if (flight_state == 3 && data_altitude <= 300) {
+    flight_state = 4; // Release
   }
-  else if (flight_state == 3 && (data_altitude <= ALT_DEPLOY || last_alt <= ALT_DEPLOY)) {
-    flight_state = 4; //deploying
+  else if (flight_state == 4 && REL_timer == REL_DELAY) {
+    flight_state = 5; //Descent
   }
-  else if (flight_state == 4) {
-    flight_state = 5; //gliding
-  }
-  else if (flight_state == 5 && (data_altitude - last_alt) >= 0) {
+  else if (flight_state == 5 && desctimer >= LAND_DELAY) {
     flight_state = 6; //landed
   }
 }
-******************************************************************/
 
 void interpret_command(String command) {
   String com;
@@ -361,7 +369,13 @@ static void smartdelay(unsigned long ms)
   } while (millis() - start < ms);
 }
 
-void pt() {
+void landBuzzer(){
+  while(1){
+    buzzer();
+  }
+}
+
+void buzzer() {
   uint16_t et = 0;
   while (et < 500) {
     digitalWrite(PIN_BUZZER, HIGH);
@@ -373,17 +387,6 @@ void pt() {
     et += 2;
   }
 }
-
-//void servoPosition(int servopin, int angle)
-//{
-//  int pulsemicros = (int)11 * angle + 490;
-//  for (int i = 0; i < 32; i++) { //gets about 90 degrees movement, call twice or change i<16 to i<32 if 180 needed
-//    digitalWrite(servopin, HIGH);
-//    delayMicroseconds(pulsemicros);
-//    digitalWrite(servopin, LOW);
-//    delay(25);
-//  }
-//}
 
 void read_tilt() {
   IMU.readSensor();
@@ -397,9 +400,6 @@ void read_tilt() {
   my = IMU.getMagY_uT()*pow(10, 6);
   mz = IMU.getMagZ_uT()*pow(10, 6);
   madgwick.update(gx, gy, gz, ax, ay, az, mx, my, mz);
-//  data_tiltX = madgwick.roll;
-//  data_tiltY = madgwick.pitch;
-//  data_tiltZ = madgwick.yaw;  
 }
 
 void send_telemetry() {
