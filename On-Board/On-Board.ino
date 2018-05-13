@@ -5,13 +5,10 @@
     Code Written by Eric Boszin and Phil
 */
 
-// To do: deffine servos positions and set to those positions
-
-#include <SFE_BMP180.h>
+#include "SFE_BMP180.h"
 #include <Wire.h>
-#include <TinyGPS.h>
+#include "TinyGPS.h"
 #include <SoftwareSerial.h>
-#include <Adafruit_VC0706.h>
 #include <SPI.h>
 #include <SD.h>
 #include "MPU9250.h"// https://github.com/bolderflight/MPU9250
@@ -37,11 +34,6 @@
 #define PIN_SDA A4
 #define PIN_SCL A5
 
-/*************************************************************
-// Servo Positions - TO TEST ------------------------------
-#define
-*************************************************************/
-
 // Thresholds for onboard logic - TO TEST
 #define ALTITUDE_TOL 5
 #define ALT_DEPLOY 670
@@ -52,7 +44,11 @@
 #define HS_DELAY 3
 
 // GPS
-#define GPS_UPDATE_TIME 1000
+#define GPS_UPDATE_TIME 200
+
+//Servos
+#define OPEN 0
+#define CLOSE 0 
 
 
 ///////////////////////////////// Variables //////////////////////////
@@ -61,56 +57,62 @@ uint8_t flight_state;
 float last_alt;
 uint32_t time_now, last_cycle, last_telem_cycle;
 uint16_t next_cycle, descent_timer, HS_timer, REL_timer;
-Servo heatshield_servo;
-Servo HS_servo;
-Servo parachute_servo;
 
 // BMP180
 SFE_BMP180 bmp180;
 double pressure_baseline; // baseline pressure
 
 // GPS
-SoftwareSerial serial_gps(gps_TX, gps_RX);
+SoftwareSerial ss(PIN_TXD, PIN_RXD);
 TinyGPS GPS;
 
+//Servo
+Servo heatshield_servo, HS_servo, parachute_servo;
 
-/////////////////////////////////////////// Telemetry //////////////////////////
+
+//////////////////////////// Telemetry //////////////////////////
 double data_altitude, data_pressure, data_voltage;
-float data_gpsLAT, data_gpsLONG, data_gpsALT, data_gpsTime, init_gpsALT;
-float data_pitot, data_temp, data_gpsSPEED;
-float gx, gy, gz, ax, ay, az, mx, my, mz; // IMU/MPU data
+float data_gpsLAT, data_gpsLONG, data_gpsALT, init_gpsALT;
+float data_temp;
 
-uint8_t data_gpsNUM, data_comCNT;
+uint8_t data_gpsNUM, data_comCNT; 
+int year;
 char data_gpsTime[8];
 byte month, day, hour, minute, second, hundredths;
 
 // Madgwick algorithm for estimating orientation from MPU data
 Madgwick madgwick;
 
+// Tilt
+MPU9250 IMU(Wire,0x68);
+
 void setup() {
   //  Serial Begin
-  Serial.begin(9600);
+  Serial.begin(115200);
+
+  // GPS
+  ss.begin(9600);
+
+  //LED
+  pinMode(PIN_LED, OUTPUT);
 
   // BMP180 Init
   bmp180.begin();
-  pressure_baseline = getPressure();
+  pressure_baseline = readBMP();
 
   //Analog Pin Setup
   pinMode(PIN_BATT, INPUT);
   pinMode(PIN_SDA, INPUT);
   pinMode(PIN_SCL, INPUT);
 
-
-/****************************************************************
   // Servo
     heatshield_servo.attach(5);
     HS_servo.attach(6);
     parachute_servo.attach(9);
-  // Set defaults for servos
-//  servoPosition(, );
-//  servoPosition(, );
-//  servoPosition(, );
-******************************************************************/
+    // Set defaults for servos
+    heatshield_servo.write(CLOSE);
+    HS_servo.write(CLOSE);
+    parachute_servo.write(90);
 
   // Buzzer
   pinMode(PIN_BUZZER, OUTPUT);
@@ -127,7 +129,7 @@ void setup() {
   REL_timer = 0;
 
 //   Tilt sensor
-  MPU9250 IMU(Wire,0x68);
+  float MPUstatus;
   MPUstatus = IMU.begin();
   while (MPUstatus < 0) {
     Serial.println("IMU initialization unsuccessful");
@@ -139,7 +141,6 @@ void setup() {
 
 
 void loop() {
-
   // Command Received
   if (Serial.available()) {
     String command;
@@ -152,7 +153,6 @@ void loop() {
       else {
         command += c;
       }
-      smartdelay(10);
     }
   }
 
@@ -167,9 +167,8 @@ void loop() {
     last_cycle = time_now; //this is put here so that sensor reading and serial writing time are not taken into account
 
     read_gps(); // Update GPS
-    read_tilt(); // Update tilt angles
-    data_temp = (float) read_temp();
-    data_pressure = (float) getPressure();
+    //read_tilt(); // Update tilt angles
+    readBMP(); // Update temp and pressure values
     data_altitude = (float) bmp180.altitude(data_pressure, pressure_baseline);
     get_flight_state();
 
@@ -189,7 +188,7 @@ void loop() {
 
       case 3: // stabilizing
         if(HS_timer == HS_DELAY*5) {
-          HS_servo.write(); // write position
+          HS_servo.write(OPEN); // write position
         }
         data_voltage = read_voltage();
         next_cycle = 200; // Monitor altitude at 5 Hz
@@ -198,8 +197,8 @@ void loop() {
 
       case 4: // release
         heatshield_servo.write(180); // write speed to turn
-        parachute_servo.write(); // write position
-        if (REL_timer == 2){
+        parachute_servo.write(OPEN); // write position
+        if (REL_timer == REL_DELAY){
           heatshield_servo.write(90); // write speed to stop turn
         }
         next_cycle = 1000;
@@ -274,10 +273,10 @@ float read_voltage() {
   return (float) voltage / 102.3;
 }
 
-double getPressure()
+double readBMP()
 {
   char status;
-  double T, P, p0, a;
+  double T, P;
 
   status = bmp180.startTemperature();
   if (status != 0)
@@ -293,44 +292,27 @@ double getPressure()
         status = bmp180.getPressure(P, T);
         if (status != 0)
         {
-          return (P);
+          data_temp = T;
+          data_pressure = P;
+          return P;
         }
       }
     }
   }
 }
 
-double read_temp()
-{
-  char status;
-  double T, P, p0, a;
-
-  status = bmp180.startTemperature();
-  if (status != 0)
-  {
-    delay(status);
-    status = bmp180.getTemperature(T);
-    if (status != 0)
-    {
-      return T;
-    }
-  }
-}
-
 void read_gps() {
-
-  bool newData = false;
-
-  // For one second we parse GPS data and report some key values
-  for (unsigned long start = millis(); millis() - start < 500;)
-  {
-    while (serial_gps.available())
-    {
-      char c = serial_gps.read();
-      // Serial.write(c); // uncomment this line if you want to see the GPS data flowing
-      if (GPS.encode(c)) // Did a new valid sentence come in?
-        newData = true;
-    }
+   bool newData = false;
+   // For one second we parse GPS data and report some key values
+   for (unsigned long start = millis(); millis() - start < 500;)
+   {
+     while (ss.available())
+     {
+       char c = ss.read();
+       // Serial.write(c); // uncomment this line if you want to see the GPS data flowing
+       if (GPS.encode(c)) // Did a new valid sentence come in?
+         newData = true;
+     }
   }
 
   if (newData)
@@ -342,23 +324,13 @@ void read_gps() {
         init_gpsALT = data_gpsALT;
       }
       data_gpsALT = GPS.f_altitude()-init_gpsALT;
-      data_gpsSPEED = GPS.f_speed_mps();
       data_gpsNUM = GPS.satellites();
-      gps.crack_datetime(&year,&month,&day,&hour,&minute,&second,&hundredths); // GPS time
+      GPS.crack_datetime(&year,&month,&day,&hour,&minute,&second,&hundredths); // GPS time
       
       sprintf(data_gpsTime, "%02d:%02d:%02d", hour, minute, second);
-  }
+    }
 }
 
-
-static void smartdelay(unsigned long ms)
-{
-  unsigned long start = millis();
-  do
-  {
-    read_gps();
-  } while (millis() - start < ms);
-}
 
 void landBuzzer(){
   while(1){
@@ -378,8 +350,9 @@ void buzzer() {
     et += 2;
   }
 }
-
+/*
 void read_tilt() {
+  float gx, gy, gz, ax, ay, az, mx, my, mz; 
   IMU.readSensor();
   ax = IMU.getAccelX_mss();
   ay = IMU.getAccelY_mss();
@@ -392,9 +365,8 @@ void read_tilt() {
   mz = IMU.getMagZ_uT()*pow(10, 6);
   madgwick.update(gx, gy, gz, ax, ay, az, mx, my, mz);
 }
-
+*/
 void send_telemetry() {
-
   Serial.print(data_altitude, 4);
   Serial.print(",");
   Serial.print(data_pressure / 10, 4);
@@ -413,16 +385,15 @@ void send_telemetry() {
   Serial.print(",");
   Serial.print(data_gpsNUM);
   Serial.print(",");
-  Serial.print(madgwick.roll);
+  Serial.print(madgwick.getRoll());
   Serial.print(",");
-  Serial.print(madgwick.pitch);
+  Serial.print(madgwick.getPitch());
   Serial.print(",");
-  Serial.print(madgwick.yaw);
+  Serial.print(madgwick.getYaw());
   Serial.print(",");
   Serial.print(flight_state);
   Serial.print("\n");
   Serial.flush();
-
 }
 
 
