@@ -38,7 +38,7 @@
 #define ALTITUDE_TOL 5
 #define ALT_DEPLOY 670
 #define DECS_THRESH 0 // set later, make a neg number
-#define EPS 0.01f
+//#define EPS 0.01f
 #define REL_DELAY 2
 #define LAND_DELAY 5
 #define HS_DELAY 3
@@ -53,10 +53,10 @@
 
 ///////////////////////////////// Variables //////////////////////////
 // Global Variables
-uint8_t flight_state;
+uint8_t flight_state, temp_timer;
 float last_alt;
 uint32_t time_now, last_cycle, last_telem_cycle;
-uint16_t next_cycle, descent_timer, HS_timer, REL_timer;
+uint16_t next_cycle;
 
 // BMP180
 SFE_BMP180 bmp180;
@@ -74,11 +74,10 @@ Servo heatshield_servo, HS_servo, parachute_servo;
 double data_altitude, data_pressure, data_voltage;
 float data_gpsLAT, data_gpsLONG, data_gpsALT, init_gpsALT;
 float data_temp;
-
 uint8_t data_gpsNUM, data_comCNT; 
-int year;
 char data_gpsTime[8];
-byte month, day, hour, minute, second, hundredths;
+byte hour, minute, second,
+
 
 // Madgwick algorithm for estimating orientation from MPU data
 Madgwick madgwick;
@@ -98,7 +97,8 @@ void setup() {
 
   // BMP180 Init
   bmp180.begin();
-  pressure_baseline = readBMP();
+  readBMP();
+  pressure_baseline = P;
 
   //Analog Pin Setup
   pinMode(PIN_BATT, INPUT);
@@ -124,19 +124,17 @@ void setup() {
   last_telem_cycle = last_cycle;
   next_cycle = 0;
   data_comCNT = 0;
-  descent_timer = 0;
-  HS_timer = 0;
-  REL_timer = 0;
+  temp_timer = 0;
 
 //   Tilt sensor
-  float MPUstatus;
+  int MPUstatus;
   MPUstatus = IMU.begin();
-  while (MPUstatus < 0) {
-    Serial.println("IMU initialization unsuccessful");
-    Serial.println("Check IMU wiring or try cycling power");
-    Serial.print("Status: ");
-    Serial.println(MPUstatus);
-  }
+//  while (MPUstatus < 0) {
+//    Serial.println("IMU initialization unsuccessful");
+//    Serial.println("Check IMU wiring or try cycling power");
+//    Serial.print("Status: ");
+//    Serial.println(MPUstatus);
+//  }
 }
 
 
@@ -167,7 +165,7 @@ void loop() {
     last_cycle = time_now; //this is put here so that sensor reading and serial writing time are not taken into account
 
     read_gps(); // Update GPS
-    //read_tilt(); // Update tilt angles
+    read_tilt(); // Update tilt angles
     readBMP(); // Update temp and pressure values
     data_altitude = (float) bmp180.altitude(data_pressure, pressure_baseline);
     get_flight_state();
@@ -187,27 +185,27 @@ void loop() {
         break;
 
       case 3: // stabilizing
-        if(HS_timer == HS_DELAY*5) {
+        if(temp_timer == HS_DELAY*5) {
           HS_servo.write(OPEN); // write position
         }
         data_voltage = read_voltage();
         next_cycle = 200; // Monitor altitude at 5 Hz
-        HS_timer ++;
+        temp_timer ++;
         break;
 
       case 4: // release
         heatshield_servo.write(180); // write speed to turn
         parachute_servo.write(OPEN); // write position
-        if (REL_timer == REL_DELAY){
+        if (temp_timer == REL_DELAY){
           heatshield_servo.write(90); // write speed to stop turn
         }
         next_cycle = 1000;
-        REL_timer ++;
+        temp_timer ++;
         break;
 
       case 5: //descent
-        if (abs(data_altitude - last_alt) < EPS){
-          descent_timer ++;
+        if (abs(data_altitude - last_alt) < 0.01){
+          temp_timer ++;
         }
         data_voltage = read_voltage();
         next_cycle = 1000;
@@ -234,10 +232,11 @@ void get_flight_state() {
   else if (flight_state == 3 && data_altitude <= 300) {
     flight_state = 4; // Release
   }
-  else if (flight_state == 4 && REL_timer == REL_DELAY) {
+  else if (flight_state == 4 && temp_timer >= REL_DELAY) {
+    temp_timer = 0;
     flight_state = 5; //Descent
   }
-  else if (flight_state == 5 && descent_timer >= LAND_DELAY) {
+  else if (flight_state == 5 && temp_timer >= LAND_DELAY) {
     flight_state = 6; //landed
   }
 }
@@ -273,7 +272,7 @@ float read_voltage() {
   return (float) voltage / 102.3;
 }
 
-double readBMP()
+void readBMP()
 {
   char status;
   double T, P;
@@ -294,7 +293,7 @@ double readBMP()
         {
           data_temp = T;
           data_pressure = P;
-          return P;
+//          return P;/
         }
       }
     }
@@ -302,9 +301,12 @@ double readBMP()
 }
 
 void read_gps() {
+   int year;
+   byte month, day, hundredths;
+   unsigned long age;
    bool newData = false;
    // For one second we parse GPS data and report some key values
-   for (unsigned long start = millis(); millis() - start < 500;)
+   for (unsigned long start = millis(); millis() - start < 1000 ;)
    {
      while (ss.available())
      {
@@ -325,7 +327,7 @@ void read_gps() {
       }
       data_gpsALT = GPS.f_altitude()-init_gpsALT;
       data_gpsNUM = GPS.satellites();
-      GPS.crack_datetime(&year,&month,&day,&hour,&minute,&second,&hundredths); // GPS time
+      GPS.crack_datetime(&year,&month,&day,&hour,&minute,&second,&hundredths, &age); // GPS time
       
       sprintf(data_gpsTime, "%02d:%02d:%02d", hour, minute, second);
     }
@@ -350,7 +352,7 @@ void buzzer() {
     et += 2;
   }
 }
-/*
+
 void read_tilt() {
   float gx, gy, gz, ax, ay, az, mx, my, mz; 
   IMU.readSensor();
@@ -365,7 +367,7 @@ void read_tilt() {
   mz = IMU.getMagZ_uT()*pow(10, 6);
   madgwick.update(gx, gy, gz, ax, ay, az, mx, my, mz);
 }
-*/
+
 void send_telemetry() {
   Serial.print(data_altitude, 4);
   Serial.print(",");
