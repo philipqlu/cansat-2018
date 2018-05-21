@@ -18,13 +18,13 @@
 #define PIN_LED 13
 #define PIN_BUZZER 3
 #define PIN_BATT A3
-#define PIN_RX 8
-#define PIN_TX 7
+#define PIN_RX 7
+#define PIN_TX 8
 
 // Telemetry
 double dataVoltage, dataTemp, dataPress, dataAlt;
 float dataGPSLat, dataGPSLong, dataGPSAlt;
-uint32_t dataGPSTime, dataGPSNum;
+uint32_t dataGPSNum, dataGPSTime;
 
 // BMP180
 SFE_BMP180 bmp180;
@@ -69,9 +69,9 @@ void setup() {
   P0 = readBMP();
 
   // Servo
-  heatServo.attach(5); // middle
-  paraServo.attach(6); // bottom
-  relServo.attach(9);  // top
+  heatServo.attach(9); // top, yellow wire !facing arduino
+  paraServo.attach(5); // middle, yellow wire !facing arduino
+  relServo.attach(6);  // bottom, yellow wire facing arduino
   // Set defaults for servos
   heatServo.write(CLOSE);
   paraServo.write(CLOSE);
@@ -93,21 +93,21 @@ void readGPS(){
       dataGPSLat = gps.location.lat();  
       
       Serial.print("Latitude= "); 
-      Serial.print(dataGPSLat, 1); 
+      Serial.print(dataGPSLat, 6); 
       
            
       // Longitude in degrees (double)
       dataGPSLong = gps.location.lng();
       
       Serial.print(" Longitude= "); 
-      Serial.println(dataGPSLong, 1); 
+      Serial.println(dataGPSLong, 6); 
       
 
       // Raw time in HHMMSSCC format (u32)
-      dataGPSTime = gps.time.value();
-      
-      Serial.print("Raw time in HHMMSSCC = "); 
-      Serial.println(dataGPSTime); 
+      dataGPSTime = 0.01 * gps.time.value(); // 0.01 to chop off trailing 0s      
+        
+      Serial.print("Raw time in HHMMSS = "); 
+      Serial.println(dataGPSTime);
       
 
       // Altitude in meters (double)
@@ -120,7 +120,7 @@ void readGPS(){
       // Number of satellites in use (u32)
       dataGPSNum = gps.satellites.value();
       
-      Serial.print("Number os satellites in use = "); 
+      Serial.print("Number of satellites in use = "); 
       Serial.println(dataGPSNum); 
       
     }
