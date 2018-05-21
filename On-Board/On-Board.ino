@@ -80,10 +80,10 @@ byte hour, minute, second,
 
 
 // Madgwick algorithm for estimating orientation from MPU data
-Madgwick madgwick;
+//Madgwick madgwick;
 
 // Tilt
-MPU9250 IMU(Wire,0x68);
+//MPU9250 IMU(Wire,0x68);
 
 void setup() {
   //  Serial Begin
@@ -98,7 +98,7 @@ void setup() {
   // BMP180 Init
   bmp180.begin();
   readBMP();
-  pressure_baseline = P;
+  pressure_baseline = readBMP();
 
   //Analog Pin Setup
   pinMode(PIN_BATT, INPUT);
@@ -272,7 +272,7 @@ float read_voltage() {
   return (float) voltage / 102.3;
 }
 
-void readBMP()
+double readBMP()
 {
   char status;
   double T, P;
@@ -293,7 +293,7 @@ void readBMP()
         {
           data_temp = T;
           data_pressure = P;
-//          return P;/
+          return P;
         }
       }
     }
