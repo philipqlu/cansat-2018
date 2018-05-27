@@ -11,6 +11,7 @@
 #include <Servo.h>
 #include "TinyGPS++.h"
 #include <SoftwareSerial.h>
+#include "MPU9250.h"       // https://github.com/bolderflight/MPU9250
 
 //  Pins
 #define PIN_RXD 0
@@ -27,8 +28,11 @@
 double dataVoltage, dataTemp, dataPress, dataAlt;
 double dataGPSLat, dataGPSLong, dataGPSAlt;
 uint32_t dataGPSNum, dataGPSTime;
-double dataTiltX, dataTiltY, dataTiltZ;
-uint8_t flightState, nextCycle;
+double dataTiltaX, dataTiltaY, dataTiltaZ, 
+       dataTiltgX, dataTiltgY, dataTiltgZ, 
+       dataTiltmX, dataTiltmY, dataTiltmZ;
+uint8_t flightState;
+uint16_t nextCycle;
 double lastAlt, globalTimer;
 uint32_t timeNow, lastCycle;
 
@@ -37,7 +41,7 @@ uint32_t timeNow, lastCycle;
 SFE_BMP180 bmp180;
 double P0;
 #define LANDED 5  // liftoff/landed threshold *
-#define DESCENT 2 // lastAlt - dataAlt threshold *
+#define DESCENT 2 // (lastAlt - dataAlt) threshold *
 #define TIMER 50 // globalTimer threshold; timing servo release and landed state *
 
 // Servos
@@ -51,8 +55,8 @@ Servo heatServo, paraServo, relServo;
 TinyGPSPlus gps;
 SoftwareSerial ss(PIN_RX, PIN_TX);
 
-// Misc.
-
+// MPU9250
+MPU9250 IMU(Wire, 0x68);
 
 void setup() {
   Serial.begin(9600);
@@ -79,6 +83,18 @@ void setup() {
   P0 = readBMP();
 
   // MPU9250
+  while(IMU.begin() < 0){
+    Serial.println("IMU initialization unsuccessful");
+    Serial.println("Check IMU wiring or try cycling power");
+  }
+  // setting the accelerometer full scale range to +/-8G 
+  IMU.setAccelRange(MPU9250::ACCEL_RANGE_8G);
+  // setting the gyroscope full scale range to +/-500 deg/s
+  IMU.setGyroRange(MPU9250::GYRO_RANGE_500DPS);
+  // setting DLPF bandwidth to 20 Hz
+  IMU.setDlpfBandwidth(MPU9250::DLPF_BANDWIDTH_20HZ);
+  // setting SRD to 19 for a 50 Hz update rate
+  IMU.setSrd(19);
 
   // BMP/MPU
   pinMode(PIN_SDA, INPUT);
@@ -98,7 +114,6 @@ void setup() {
 }
 
 void loop(){
-
   getCommand();
   
   readGPS();
@@ -113,14 +128,14 @@ void loop(){
       case 1: // prelaunch
               readVoltage();
               readBMP();
-  //            readMPU(); // *
+              readMPU(); // *
               nextCycle = 1000;
               break;
     
       case 2: // ascending
               readVoltage();
               readBMP();
-  //            readMPU(); // *
+              readMPU(); // *
               nextCycle = 200;
               break;
     
@@ -128,7 +143,7 @@ void loop(){
               heatServo.write(OPEN);
               readVoltage();
               readBMP();
-  //            readMPU(); // *
+              readMPU(); // *
               nextCycle = 200;
               break;
     
@@ -141,8 +156,8 @@ void loop(){
               globalTimer ++;
               readVoltage();
               readBMP();
-  //            readMPU(); // *
-              nextCycle = 1000;
+              readMPU(); // *
+              nextCycle = 200;
               break;
     
       case 5: //descent
@@ -151,7 +166,7 @@ void loop(){
               }
               readVoltage();
               readBMP();
-  //            readMPU(); // *
+              readMPU(); // *
               nextCycle = 200;
               break;
     
@@ -221,6 +236,49 @@ void interpretCommand(String command) {
   }
 }
 
+void readMPU(){
+  
+  IMU.readSensor();  
+                
+  dataTiltaX = IMU.getAccelX_mss();
+  dataTiltaY = IMU.getAccelY_mss();
+  dataTiltaZ = IMU.getAccelZ_mss();
+  dataTiltgX = IMU.getGyroX_rads();
+  dataTiltgY = IMU.getGyroY_rads();
+  dataTiltgZ = IMU.getGyroZ_rads();
+  dataTiltmX = IMU.getMagX_uT();
+  dataTiltmY = IMU.getMagY_uT();
+  dataTiltmZ = IMU.getMagZ_uT();
+  /*
+  Serial.print("aX ");
+  Serial.print(dataTiltaX, 6);
+  Serial.print(",");
+  Serial.print(" aY ");
+  Serial.print(dataTiltaY, 6); 
+  Serial.print(",");
+  Serial.print(" aZ ");
+  Serial.print(dataTiltaZ, 6); 
+  Serial.print(",");
+  Serial.print(" gX ");
+  Serial.print(dataTiltgX, 6); 
+  Serial.print(",");
+  Serial.print(" gY ");
+  Serial.print(dataTiltgY, 6); 
+  Serial.print(",");
+  Serial.print(" gZ ");
+  Serial.print(dataTiltgZ, 6); 
+  Serial.print(",");
+  Serial.print(" mX ");
+  Serial.print(dataTiltmX, 6);
+  Serial.print(",");
+  Serial.print(" mY ");
+  Serial.print(dataTiltmY, 6);
+  Serial.print(",");
+  Serial.print(" mZ ");
+  Serial.println(dataTiltmZ, 6);
+  */
+}
+
 void readGPS(){
   while(ss.available() > 0){
     gps.encode(ss.read());
@@ -258,8 +316,7 @@ void readGPS(){
 double readBMP(){
   char status;
   double T, P;
-  bool success = false;
-
+  
   status = bmp180.startTemperature();
   if (status != 0) {
     delay(4.5);
@@ -333,13 +390,25 @@ void sendTelemetry() {
   Serial.print(",");
   Serial.print(dataGPSNum);
   Serial.print(",");
-  Serial.print(dataTiltX, 1); // *
+  Serial.print(dataTiltaX, 6);  // Accelerometer *
   Serial.print(",");
-  Serial.print(dataTiltY, 1); // *
+  Serial.print(dataTiltaY, 6); // Accelerometer *
   Serial.print(",");
-  Serial.print(dataTiltZ, 1); // *
+  Serial.print(dataTiltaZ, 6); // Accelerometer *
   Serial.print(",");
-  Serial.print(flightState); // *
+  Serial.print(dataTiltgX, 6); // Gyroscope *
+  Serial.print(",");
+  Serial.print(dataTiltgY, 6); // Gyroscope *
+  Serial.print(",");
+  Serial.print(dataTiltgZ, 6); // Gyroscope *
+  Serial.print(",");
+  Serial.print(dataTiltmX, 6); // Magnometer *
+  Serial.print(",");
+  Serial.print(dataTiltmY, 6); // Magnometer *
+  Serial.print(",");
+  Serial.print(dataTiltmZ, 6); // Magnometer *
+  Serial.print(",");
+  Serial.print(flightState);
   Serial.print("\n");
   Serial.flush();
 }
@@ -386,8 +455,10 @@ void Reset(){
   dataVoltage, dataTemp, dataPress, dataAlt = 0,0,0,0;
   dataGPSLat, dataGPSLong, dataGPSAlt = 0,0,0;
   dataGPSNum, dataGPSTime = 0,0;
-  dataTiltX, dataTiltY, dataTiltZ = 0,0,0;
-  flightState = 0;
+  dataTiltaX, dataTiltaY, dataTiltaZ, 
+  dataTiltgX, dataTiltgY, dataTiltgZ, 
+  dataTiltmX, dataTiltmY, dataTiltmZ = 0,0,0,0,0,0,0,0,0;
+  flightState = 1;
   lastAlt, globalTimer = 0,0;
 }
 
