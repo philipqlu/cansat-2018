@@ -34,15 +34,17 @@ double dataTiltaX, dataTiltaY, dataTiltaZ,
 uint8_t flightState;
 uint16_t nextCycle;
 double lastAlt, globalTimer;
-uint32_t timeNow, lastCycle;
+uint32_t timeNow, lastCycle, last_telem_cycle;
 
 
 // BMP180
 SFE_BMP180 bmp180;
 double P0;
 #define LANDED 5  // liftoff/landed threshold *
+#define STOPPED 1
 #define DESCENT 2 // (lastAlt - dataAlt) threshold *
-#define TIMER 50 // globalTimer threshold; timing servo release and landed state *
+#define TIMER 5000/200 // globalTimer threshold; timing servo release and landed state *
+#define LANDTIMER 5000/200
 
 // Servos
 Servo heatServo, paraServo, relServo;
@@ -83,18 +85,18 @@ void setup() {
   P0 = readBMP();
 
   // MPU9250
-  while(IMU.begin() < 0){
-    Serial.println("IMU initialization unsuccessful");
-    Serial.println("Check IMU wiring or try cycling power");
-  }
-  // setting the accelerometer full scale range to +/-8G 
-  IMU.setAccelRange(MPU9250::ACCEL_RANGE_8G);
-  // setting the gyroscope full scale range to +/-500 deg/s
-  IMU.setGyroRange(MPU9250::GYRO_RANGE_500DPS);
-  // setting DLPF bandwidth to 20 Hz
-  IMU.setDlpfBandwidth(MPU9250::DLPF_BANDWIDTH_20HZ);
-  // setting SRD to 19 for a 50 Hz update rate
-  IMU.setSrd(19);
+//  while(IMU.begin() < 0){
+//    Serial.println("IMU initialization unsuccessful");
+//    Serial.println("Check IMU wiring or try cycling power");
+//  }
+//  // setting the accelerometer full scale range to +/-8G 
+//  IMU.setAccelRange(MPU9250::ACCEL_RANGE_8G);
+//  // setting the gyroscope full scale range to +/-500 deg/s
+//  IMU.setGyroRange(MPU9250::GYRO_RANGE_500DPS);
+//  // setting DLPF bandwidth to 20 Hz
+//  IMU.setDlpfBandwidth(MPU9250::DLPF_BANDWIDTH_20HZ);
+//  // setting SRD to 19 for a 50 Hz update rate
+//  IMU.setSrd(19);
 
   // BMP/MPU
   pinMode(PIN_SDA, INPUT);
@@ -111,6 +113,8 @@ void setup() {
   relServo.write(OFF);
 
   flightState = 1;
+  lastCycle = millis();
+  last_telem_cycle = lastCycle;
 }
 
 void loop(){
@@ -119,22 +123,23 @@ void loop(){
   readGPS();
   
   timeNow = millis();
-
+  if (lastCycle > timeNow) lastCycle = timeNow;
+  if (last_telem_cycle > timeNow) last_telem_cycle = timeNow;
+  
   if (timeNow - nextCycle >= lastCycle) {
     lastCycle = timeNow;
+    readBMP();
     getFlightState();
     
     switch (flightState) {
       case 1: // prelaunch
               readVoltage();
-              readBMP();
               readMPU(); // *
               nextCycle = 1000;
               break;
     
       case 2: // ascending
               readVoltage();
-              readBMP();
               readMPU(); // *
               nextCycle = 200;
               break;
@@ -142,7 +147,6 @@ void loop(){
       case 3: // stabilizing
               heatServo.write(OPEN);
               readVoltage();
-              readBMP();
               readMPU(); // *
               nextCycle = 200;
               break;
@@ -150,12 +154,11 @@ void loop(){
       case 4: // release
               relServo.write(ON);       // write speed to turn
               paraServo.write(OPEN);    // write position
-              if (globalTimer == TIMER){
+              if (globalTimer >= TIMER){
                 relServo.write(OFF);    // write speed to stop turn
               }
               globalTimer ++;
               readVoltage();
-              readBMP();
               readMPU(); // *
               nextCycle = 200;
               break;
@@ -165,7 +168,6 @@ void loop(){
                 globalTimer++;
               }
               readVoltage();
-              readBMP();
               readMPU(); // *
               nextCycle = 200;
               break;
@@ -174,7 +176,10 @@ void loop(){
               landBuzzer();
               break;
     }
-    sendTelemetry();
+    if (timeNow - 1000 >= last_telem_cycle) {
+      last_telem_cycle = timeNow;
+      sendTelemetry();
+    }
   }
 }
 
@@ -188,12 +193,13 @@ void getFlightState() {
   }
   else if (flightState == 3 && (dataAlt <= 300)) {
     flightState = 4; // Release
+    globalTimer = 0;
   }
   else if (flightState == 4 && globalTimer >= TIMER) { 
       flightState = 5; //Descent
       globalTimer = 0;
   }
-  else if (flightState == 5 && (dataAlt < LANDED) && globalTimer >= TIMER) {
+  else if (flightState == 5 && ((lastAlt - dataAlt) < STOPPED) && globalTimer >= LANDTIMER) {
       flightState = 6; //Landed
   }
 }
@@ -238,17 +244,17 @@ void interpretCommand(String command) {
 
 void readMPU(){
   
-  IMU.readSensor();  
-                
-  dataTiltaX = IMU.getAccelX_mss();
-  dataTiltaY = IMU.getAccelY_mss();
-  dataTiltaZ = IMU.getAccelZ_mss();
-  dataTiltgX = IMU.getGyroX_rads();
-  dataTiltgY = IMU.getGyroY_rads();
-  dataTiltgZ = IMU.getGyroZ_rads();
-  dataTiltmX = IMU.getMagX_uT();
-  dataTiltmY = IMU.getMagY_uT();
-  dataTiltmZ = IMU.getMagZ_uT();
+//  IMU.readSensor();  
+//                
+//  dataTiltaX = IMU.getAccelX_mss();
+//  dataTiltaY = IMU.getAccelY_mss();
+//  dataTiltaZ = IMU.getAccelZ_mss();
+//  dataTiltgX = IMU.getGyroX_rads();
+//  dataTiltgY = IMU.getGyroY_rads();
+//  dataTiltgZ = IMU.getGyroZ_rads();
+//  dataTiltmX = IMU.getMagX_uT();
+//  dataTiltmY = IMU.getMagY_uT();
+//  dataTiltmZ = IMU.getMagZ_uT();
   /*
   Serial.print("aX ");
   Serial.print(dataTiltaX, 6);
@@ -390,23 +396,23 @@ void sendTelemetry() {
   Serial.print(",");
   Serial.print(dataGPSNum);
   Serial.print(",");
-  Serial.print(dataTiltaX, 6);  // Accelerometer *
+  Serial.print(dataTiltaX, 2);  // Accelerometer *
   Serial.print(",");
-  Serial.print(dataTiltaY, 6); // Accelerometer *
+  Serial.print(dataTiltaY, 2); // Accelerometer *
   Serial.print(",");
-  Serial.print(dataTiltaZ, 6); // Accelerometer *
+  Serial.print(dataTiltaZ, 2); // Accelerometer *
   Serial.print(",");
-  Serial.print(dataTiltgX, 6); // Gyroscope *
+  Serial.print(dataTiltgX, 2); // Gyroscope *
   Serial.print(",");
-  Serial.print(dataTiltgY, 6); // Gyroscope *
+  Serial.print(dataTiltgY, 2); // Gyroscope *
   Serial.print(",");
-  Serial.print(dataTiltgZ, 6); // Gyroscope *
+  Serial.print(dataTiltgZ, 2); // Gyroscope *
   Serial.print(",");
-  Serial.print(dataTiltmX, 6); // Magnometer *
+  Serial.print(dataTiltmX, 2); // Magnometer *
   Serial.print(",");
-  Serial.print(dataTiltmY, 6); // Magnometer *
+  Serial.print(dataTiltmY, 2); // Magnometer *
   Serial.print(",");
-  Serial.print(dataTiltmZ, 6); // Magnometer *
+  Serial.print(dataTiltmZ, 2); // Magnometer *
   Serial.print(",");
   Serial.print(flightState);
   Serial.print("\n");
@@ -414,52 +420,16 @@ void sendTelemetry() {
 }
 
 void Reset(){
-  Serial.begin(9600);
 
-  // LED
-  pinMode(PIN_LED, OUTPUT);
-
-  // GPS
-  ss.begin(9600);
-  
-  //  Buzzer
-  pinMode(PIN_BUZZER, OUTPUT);
-
-  // Battery
-  pinMode(PIN_BATT, INPUT);
-
-  // BMP180
-  bool success;
-  success = bmp180.begin();
-  if(!success){
-    Serial.println("BMP180 init fail");
-  }
-  delay(1000); // Wait for BMP to get better pressure reading
-  P0 = readBMP();
-
-  // MPU9250
-
-  // BMP/MPU
-  pinMode(PIN_SDA, INPUT);
-  pinMode(PIN_SCL, INPUT);
-
-  // Servo
-  heatServo.attach(9); // top, yellow wire !facing arduino
-  paraServo.attach(5); // middle, yellow wire !facing arduino
-  relServo.attach(6);  // bottom, yellow wire facing arduino
   // Set defaults for servos
   heatServo.write(CLOSE);
   paraServo.write(CLOSE);
   relServo.write(OFF);
 
-  dataVoltage, dataTemp, dataPress, dataAlt = 0,0,0,0;
-  dataGPSLat, dataGPSLong, dataGPSAlt = 0,0,0;
-  dataGPSNum, dataGPSTime = 0,0;
-  dataTiltaX, dataTiltaY, dataTiltaZ, 
-  dataTiltgX, dataTiltgY, dataTiltgZ, 
-  dataTiltmX, dataTiltmY, dataTiltmZ = 0,0,0,0,0,0,0,0,0;
-  flightState = 1;
-  lastAlt, globalTimer = 0,0;
+  P0 = readBMP();
+
+  lastCycle = millis();
+  last_telem_cycle = lastCycle;
 }
 
 
