@@ -34,7 +34,7 @@ double dataTiltgX, dataTiltgY, dataTiltgZ,
 uint8_t flightState;
 uint16_t nextCycle;
 double lastAlt, globalTimer;
-uint32_t timeBefore, timeNow, lastCycle, last_telem_cycle;
+uint32_t timeBefore, timeNow, lastCycle, last_telem_cycle, init_time, t;
 
 
 // BMP180
@@ -42,7 +42,7 @@ SFE_BMP180 bmp180;
 double P0;
 #define LANDED 5  // liftoff/landed threshold *
 #define STOPPED 1
-#define DESCENT 2 // (lastAlt - dataAlt) threshold *
+#define DESCENT 3 // (lastAlt - dataAlt) threshold *
 #define TIMER 5000/200 // globalTimer threshold; timing servo release and landed state *
 #define LANDTIMER 5000/200
 
@@ -111,6 +111,8 @@ void setup() {
   flightState = 1;
   lastCycle = millis();
   last_telem_cycle = lastCycle;
+  init_time = millis();
+
 }
 
 void loop(){
@@ -143,7 +145,7 @@ void loop(){
               ss.end();
               heatServo.attach(9);
               heatServo.write(OPEN);
-              delay(800);
+              delay(1000);
               heatServo.detach();
               ss.begin(9600);
               readVoltage();
@@ -151,19 +153,12 @@ void loop(){
               break;
     
       case 4: // release
-              ss.end();
-              paraServo.attach(5); 
-              relServo.write(ON);       // write speed to turn
-              paraServo.write(OPEN);    // write position
-              delay(800);
-              paraServo.detach();
-              ss.begin(9600);
+              globalTimer ++;
               if (globalTimer >= TIMER){
                 relServo.write(OFF);    // write speed to stop turn
-                delay(800);
+                delay(1000);
                 relServo.detach();
               }
-              globalTimer ++;
               readVoltage();
               nextCycle = 200;
               break;
@@ -192,12 +187,19 @@ void getFlightState() {
   if (flightState == 1 && (dataAlt > LANDED)) {
     flightState = 2; //Ascending
   }
-  else if (flightState == 2 && ((lastAlt - dataAlt) > DESCENT)) {
+  else if (flightState == 2 && ((lastAlt - dataAlt) > DESCENT) && dataAlt > 400) {
     flightState = 3; //Stabilizing
   }
   else if (flightState == 3 && (dataAlt <= 300)) {
     flightState = 4; // Release
-    relServo.attach(6);
+    ss.end();
+    paraServo.attach(5);
+    relServo.attach(6); 
+    relServo.write(ON);       // write speed to turn
+    paraServo.write(OPEN);    // write position
+    delay(1000);
+    paraServo.detach();
+    ss.begin(9600);
     globalTimer = 0;
   }
   else if (flightState == 4 && globalTimer >= TIMER) { 
@@ -329,6 +331,35 @@ double readBMP(){
           dataTemp = T;
           lastAlt = dataAlt;
           dataAlt = bmp180.altitude(dataPress, P0); 
+
+  /*      
+  // Simulated Altitude
+  char status;
+  double T, P;
+  
+  status = bmp180.startTemperature();
+  if (status != 0) {
+    delay(4.5);
+    status = bmp180.getTemperature(T);
+    if (status != 0) {
+      status = bmp180.startPressure(3);
+      if (status != 0) {
+        delay(status);
+        status = bmp180.getPressure(P, T);
+        if (status != 0) {
+          
+          dataPress = 0.1 * P;
+          dataTemp = T;
+          lastAlt = dataAlt;
+          t = (millis() - init_time)/1000;
+          dataAlt = -700/225*(t-5)*(t-35);
+          
+          if (dataAlt <= 0 || dataAlt >=  800){
+              dataAlt = 0;
+             
+          }
+          dataAlt = dataAlt +(random(10,50)-30)/10;
+  */
           /*
           Serial.print("Pressure: ");
           Serial.print(dataPress, 1);
@@ -365,6 +396,7 @@ void landBuzzer(){
     }
     LED = !LED;
     digitalWrite(PIN_LED, LED);
+    delay(500);
 }
 
 void sendTelemetry() {
@@ -404,17 +436,29 @@ double wrapTilt(double toWrap){
 
 void Reset(){
 
+  ss.end();
+  
+  // Servo
+  heatServo.attach(9); // top, yellow wire !facing arduino
+  paraServo.attach(5); // middle, yellow wire !facing arduino
+  relServo.attach(6);  // bottom, yellow wire facing arduino
+  
   // Set defaults for servos
-  cli();
   heatServo.write(CLOSE);
   paraServo.write(CLOSE);
   relServo.write(OFF);
-  sei();
+  delay(800);
+  heatServo.detach(); 
+  paraServo.detach(); 
+  relServo.detach();
+
+  ss.begin(9600);
 
   P0 = readBMP();
 
   lastCycle = millis();
   last_telem_cycle = lastCycle;
+  flightState = 1;
 }
 
 
