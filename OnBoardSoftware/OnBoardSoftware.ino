@@ -15,8 +15,6 @@
 
 
 //  Pins
-#define PIN_RXD 0
-#define PIN_TXD 1
 #define PIN_LED 13
 #define PIN_BUZZER 3
 #define PIN_BATT A3
@@ -83,7 +81,7 @@ void setup() {
   P0 = readBMP();
 
   // MPU9250
-  while(IMU.begin() < 0){
+  if(IMU.begin() < 0){
     Serial.println("IMU initialization unsuccessful");
     Serial.println("Check IMU wiring or try cycling power");
   }
@@ -116,11 +114,10 @@ void setup() {
 }
 
 void loop(){
-  getCommand();
-  
+  getCommand(); 
   readGPS();
   readMPU();
-  
+ 
   timeNow = millis();
   if (lastCycle > timeNow) lastCycle = timeNow;
   if (last_telem_cycle > timeNow) last_telem_cycle = timeNow;
@@ -156,7 +153,7 @@ void loop(){
               globalTimer ++;
               if (globalTimer >= TIMER){
                 relServo.write(OFF);    // write speed to stop turn
-                delay(1000);
+                smartDelay(1000);
                 relServo.detach();
               }
               readVoltage();
@@ -197,7 +194,7 @@ void getFlightState() {
     relServo.attach(6); 
     relServo.write(ON);       // write speed to turn
     paraServo.write(OPEN);    // write position
-    delay(1000);
+    smartDelay(1000);
     paraServo.detach();
     ss.begin(9600);
     globalTimer = 0;
@@ -313,6 +310,7 @@ void readGPS(){
 }
 
 double readBMP(){
+  
   char status;
   double T, P;
   
@@ -427,6 +425,7 @@ void sendTelemetry() {
   Serial.print(flightState);
   Serial.print("\n");
   Serial.flush();
+  smartDelay(100);
 }
 
 double wrapTilt(double toWrap){
@@ -461,4 +460,10 @@ void Reset(){
   flightState = 1;
 }
 
+static void smartDelay(unsigned long ms) {
+  unsigned long start = millis();
+  do {
+    readGPS();
+  } while (millis() - start < ms);
+}
 
