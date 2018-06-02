@@ -252,17 +252,6 @@ void readMPU(){
   tiltY = tiltY + (t - timeBefore)/1000.0 * (dataTiltgY + dataTiltgYBefore) / 2.0;
   tiltZ = tiltZ + (t - timeBefore)/1000.0 * (dataTiltgZ + dataTiltgZBefore) / 2.0;
   timeBefore = t;
-
-  /*
-  Serial.print(" gX ");
-  Serial.print(wrapTilt(tiltX), 6); 
-  Serial.print(",");
-  Serial.print(" gY ");
-  Serial.print(wrapTilt(tiltY), 6); 
-  Serial.print(",");
-  Serial.print(" gZ ");
-  Serial.println(wrapTilt(tiltZ), 6); 
-  */
 }
 
 void readGPS(){
@@ -347,17 +336,6 @@ double readBMP(){
              
           }
           dataAlt = dataAlt +(random(10,50)-30)/10;
-          
-          Serial.print("Pressure: ");
-          Serial.print(dataPress, 1);
-          Serial.println(" kPa");
-          Serial.print("Temperature: ");
-          Serial.print(dataTemp, 1);
-          Serial.println(" C");
-          Serial.print("Altitude: ");
-          Serial.print(dataAlt, 1);
-          Serial.println(" m");
-          
           return 0.1 * P; */
         }
       }
@@ -450,6 +428,7 @@ static void smartDelay(unsigned long ms) {
   unsigned long start = millis();
   do {
     readGPS();
+    readMPU();
   } while (millis() - start < ms);
 }
 
