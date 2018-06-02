@@ -32,17 +32,17 @@ double dataTiltgX, dataTiltgY, dataTiltgZ,
 uint8_t flightState;
 uint16_t nextCycle;
 double lastAlt, globalTimer;
-uint32_t timeBefore, timeNow, lastCycle, last_telem_cycle, init_time, t;
+uint32_t timeBefore, timeNow, lastCycle, lastTelemCycle;//, init_time, t;
 
 
 // BMP180
 SFE_BMP180 bmp180;
 double P0;
-#define LANDED 5  // liftoff/landed threshold *
+#define LANDED 5  // liftoff/landed threshold
 #define STOPPED 1
-#define DESCENT 3 // (lastAlt - dataAlt) threshold *
-#define TIMER 5000/200 // globalTimer threshold; timing servo release and landed state *
-#define LANDTIMER 5000/200
+#define DESCENT 3 // (lastAlt - dataAlt) threshold
+#define TIMER 5000/200 // globalTimer threshold; timing servo release
+#define LANDTIMER 5000/200 // globalTimer threshold; timing landed state
 
 // Servos
 Servo heatServo, paraServo, relServo;
@@ -108,8 +108,8 @@ void setup() {
 
   flightState = 1;
   lastCycle = millis();
-  last_telem_cycle = lastCycle;
-  init_time = millis();
+  lastTelemCycle = lastCycle;
+  //init_time = millis();
 
 }
 
@@ -120,21 +120,20 @@ void loop(){
  
   timeNow = millis();
   if (lastCycle > timeNow) lastCycle = timeNow;
-  if (last_telem_cycle > timeNow) last_telem_cycle = timeNow;
+  if (lastTelemCycle > timeNow) lastTelemCycle = timeNow;
   
   if (timeNow - nextCycle >= lastCycle) {
     lastCycle = timeNow;
     readBMP();
+    readVoltage();
     getFlightState();
     
     switch (flightState) {
       case 1: // prelaunch
-              readVoltage();
               nextCycle = 1000;
               break;
     
       case 2: // ascending
-              readVoltage();
               nextCycle = 200;
               break;
     
@@ -145,7 +144,6 @@ void loop(){
               delay(1000);
               heatServo.detach();
               ss.begin(9600);
-              readVoltage();
               nextCycle = 200;
               break;
     
@@ -156,7 +154,6 @@ void loop(){
                 smartDelay(1000);
                 relServo.detach();
               }
-              readVoltage();
               nextCycle = 200;
               break;
     
@@ -164,7 +161,6 @@ void loop(){
               if (abs(dataAlt - lastAlt) < LANDED){
                 globalTimer++;
               }
-              readVoltage();
               nextCycle = 200;
               break;
     
@@ -172,8 +168,8 @@ void loop(){
               landBuzzer();
               break;
     }
-    if (timeNow - 1000 >= last_telem_cycle && flightState != 6) {
-      last_telem_cycle = timeNow;
+    if (timeNow - 1000 >= lastTelemCycle && flightState != 6) {
+      lastTelemCycle = timeNow;
       sendTelemetry();
     }
   }
@@ -209,40 +205,34 @@ void getFlightState() {
 }
 
 void getCommand() {
-  if (Serial.available()) {
-    String command;
-    while (Serial.available()) {
-      char c = Serial.read();
-      if (c == '\n') {
-        interpretCommand(command);
-        command = "";
-      }
-      else {
-        command += c;
-      }
+  String command;
+  while (Serial.available()) {
+    char com = Serial.read();
+    if (com == '\n') {
+      interpretCommand(command);
+      command = "";
+    }
+    else {
+      command += com;
     }
   }
 }
 
 void interpretCommand(String command) {
-  String com = command.substring(0, 1);
-  if (com.equals("f")) {
-    int forceCom = command.substring(2).toInt();
-    if (forceCom == 0) {
-      Reset();
-    } if (forceCom == 1) {
-      flightState = 1;
-    } else if (forceCom == 2) {
-      flightState = 2;
-    } else if (forceCom == 3) {
-      flightState = 3;
-    } else if (forceCom == 4) {
-      flightState = 4;
-    } else if (forceCom == 5) {
-      flightState = 5;
-    } else if (forceCom == 6) {
-      flightState = 6;
-    }
+  if (command.equals("f00")) {
+    Reset();
+  } else if (command.equals("f01")) {
+    flightState = 1;
+  } else if (command.equals("f02")) {
+    flightState = 2;
+  } else if (command.equals("f03")) {
+    flightState = 3;
+  } else if (command.equals("f04")) {
+    flightState = 4;
+  } else if (command.equals("f05")) {
+    flightState = 5;
+  } else if (command.equals("f06")) {
+    flightState = 6;
   }
 }
 
@@ -329,9 +319,9 @@ double readBMP(){
           dataTemp = T;
           lastAlt = dataAlt;
           dataAlt = bmp180.altitude(dataPress, P0); 
+          return 0.1 * P;
 
-  /*      
-  // Simulated Altitude
+/*  // Simulated Altitude
   char status;
   double T, P;
   
@@ -357,8 +347,7 @@ double readBMP(){
              
           }
           dataAlt = dataAlt +(random(10,50)-30)/10;
-  */
-          /*
+          
           Serial.print("Pressure: ");
           Serial.print(dataPress, 1);
           Serial.println(" kPa");
@@ -368,8 +357,8 @@ double readBMP(){
           Serial.print("Altitude: ");
           Serial.print(dataAlt, 1);
           Serial.println(" m");
-          */
-          return 0.1 * P;
+          
+          return 0.1 * P; */
         }
       }
     }
@@ -382,19 +371,17 @@ void readVoltage() {
 }
 
 void landBuzzer(){
-  bool LED = true;
-    digitalWrite(PIN_LED, LED);
-    uint16_t et = 0;
-    while (et < 500) {
-      digitalWrite(PIN_BUZZER, HIGH);
-      delayMicroseconds(400);
-      digitalWrite(PIN_BUZZER, LOW);
-      delayMicroseconds(400);
-      et ++;
-    }
-    LED = !LED;
-    digitalWrite(PIN_LED, LED);
-    delay(500);
+  digitalWrite(PIN_LED, HIGH);
+  uint16_t et = 0;
+  while (et < 500) {
+    digitalWrite(PIN_BUZZER, HIGH);
+    delayMicroseconds(400);
+    digitalWrite(PIN_BUZZER, LOW);
+    delayMicroseconds(400);
+    et ++;
+  }
+  digitalWrite(PIN_LED, LOW);
+  delay(500);
 }
 
 void sendTelemetry() {
@@ -416,11 +403,11 @@ void sendTelemetry() {
   Serial.print(",");
   Serial.print(dataGPSNum);
   Serial.print(",");
-  Serial.print(wrapTilt(tiltX), 2); // Gyroscope *
+  Serial.print(wrapTilt(tiltX), 2); 
   Serial.print(",");
-  Serial.print(wrapTilt(tiltY), 2); // Gyroscope *
+  Serial.print(wrapTilt(tiltY), 2); 
   Serial.print(",");
-  Serial.print(wrapTilt(tiltZ), 2); // Gyroscope *
+  Serial.print(wrapTilt(tiltZ), 2); 
   Serial.print(",");
   Serial.print(flightState);
   Serial.print("\n");
@@ -429,7 +416,6 @@ void sendTelemetry() {
 }
 
 double wrapTilt(double toWrap){
-	//int sign = toWrap / abs(toWrap);
 	return (toWrap - toWrap/PI)*180/PI;
 }
 
@@ -456,7 +442,7 @@ void Reset(){
   P0 = readBMP();
 
   lastCycle = millis();
-  last_telem_cycle = lastCycle;
+  lastTelemCycle = lastCycle;
   flightState = 1;
 }
 
