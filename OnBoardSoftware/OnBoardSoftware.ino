@@ -93,16 +93,13 @@ void setup() {
   // Servo
   heatServo.attach(9); // top, yellow wire !facing arduino
   paraServo.attach(5); // middle, yellow wire !facing arduino
-  relServo.attach(6);  // bottom, yellow wire facing arduino
   
   // Set defaults for servos
   heatServo.write(CLOSE);
   paraServo.write(CLOSE);
-  relServo.write(OFF);
   delay(800);
   heatServo.detach(); 
   paraServo.detach(); 
-  relServo.detach();
 
   ss.begin(9600);
 
@@ -114,7 +111,32 @@ void setup() {
 }
 
 void loop(){
-  getCommand(); 
+  String command;
+  while (Serial.available()) {
+    char com = Serial.read();
+    if (com == '\n') {
+      if (command.equals("f00")) {
+        Reset();
+      } else if (command.equals("f01")) {
+        flightState = 1;
+      } else if (command.equals("f02")) {
+        flightState = 2;
+      } else if (command.equals("f03")) {
+        flightState = 3;
+      } else if (command.equals("f04")) {
+        flightState = 4;
+      } else if (command.equals("f05")) {
+        flightState = 5;
+      } else if (command.equals("f06")) {
+        flightState = 6;
+      }command = "";
+      Serial.flush();
+      smartDelay(100);
+    }
+    else {
+      command += com;
+    }
+  } 
   readGPS();
   readMPU();
  
@@ -201,38 +223,6 @@ void getFlightState() {
   }
   else if (flightState == 5 && ((lastAlt - dataAlt) < STOPPED) && globalTimer >= LANDTIMER) {
       flightState = 6; //Landed
-  }
-}
-
-void getCommand() {
-  String command;
-  while (Serial.available()) {
-    char com = Serial.read();
-    if (com == '\n') {
-      interpretCommand(command);
-      command = "";
-    }
-    else {
-      command += com;
-    }
-  }
-}
-
-void interpretCommand(String command) {
-  if (command.equals("f00")) {
-    Reset();
-  } else if (command.equals("f01")) {
-    flightState = 1;
-  } else if (command.equals("f02")) {
-    flightState = 2;
-  } else if (command.equals("f03")) {
-    flightState = 3;
-  } else if (command.equals("f04")) {
-    flightState = 4;
-  } else if (command.equals("f05")) {
-    flightState = 5;
-  } else if (command.equals("f06")) {
-    flightState = 6;
   }
 }
 
@@ -428,7 +418,6 @@ static void smartDelay(unsigned long ms) {
   unsigned long start = millis();
   do {
     readGPS();
-    readMPU();
   } while (millis() - start < ms);
 }
 
