@@ -48,7 +48,7 @@ double P0;
 Servo heatServo, paraServo, relServo;
 #define OPEN 180 
 #define CLOSE 0 
-#define ON 180 // or 0 for opposite direction *
+#define ON 0 
 #define OFF 90
 
 // GPS
@@ -107,7 +107,6 @@ void setup() {
   lastCycle = millis();
   lastTelemCycle = lastCycle;
   //init_time = millis();
-
 }
 
 void loop(){
