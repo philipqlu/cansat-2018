@@ -405,6 +405,8 @@ void Reset(){
   relServo.attach(6);
   relServo.write(SCREW); // used to attach the heatshield
   delay(4000);
+  relServo.write(OFF);
+  delay(800);
   relServo.detach();
 
   ss.begin(9600);
