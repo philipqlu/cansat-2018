@@ -46,8 +46,8 @@ double P0;
 
 // Servos
 Servo heatServo, paraServo, relServo;
-#define OPEN 180 // *
-#define CLOSE 0 // *
+#define OPEN 180 
+#define CLOSE 0 
 #define ON 180 // or 0 for opposite direction *
 #define OFF 90
 
@@ -90,15 +90,15 @@ void setup() {
   pinMode(PIN_SDA, INPUT);
   pinMode(PIN_SCL, INPUT);
 
-  // Servo
+  // Servo setup
   heatServo.attach(9); // top, yellow wire !facing arduino
-  paraServo.attach(5); // middle, yellow wire !facing arduino
-  
-  // Set defaults for servos
   heatServo.write(CLOSE);
-  paraServo.write(CLOSE);
   delay(800);
   heatServo.detach(); 
+  
+  paraServo.attach(5); // middle, yellow wire !facing arduino
+  paraServo.write(CLOSE);
+  delay(800);
   paraServo.detach(); 
 
   ss.begin(9600);
@@ -209,11 +209,11 @@ void getFlightState() {
     flightState = 4; // Release
     ss.end();
     paraServo.attach(5);
-    relServo.attach(6); 
-    relServo.write(ON);       // write speed to turn
     paraServo.write(OPEN);    // write position
     smartDelay(1000);
     paraServo.detach();
+    relServo.attach(6); 
+    relServo.write(ON);       // write speed to turn
     ss.begin(9600);
     globalTimer = 0;
   }
@@ -384,26 +384,23 @@ void sendTelemetry() {
 }
 
 double wrapTilt(double toWrap){
-	return (toWrap - toWrap/PI)*180/PI;
+  return (toWrap - toWrap/PI)*180/PI;
 }
 
 void Reset(){
 
   ss.end();
   
-  // Servo
+  // Servo setup
   heatServo.attach(9); // top, yellow wire !facing arduino
-  paraServo.attach(5); // middle, yellow wire !facing arduino
-  relServo.attach(6);  // bottom, yellow wire facing arduino
-  
-  // Set defaults for servos
   heatServo.write(CLOSE);
-  paraServo.write(CLOSE);
-  relServo.write(OFF);
   delay(800);
   heatServo.detach(); 
+  
+  paraServo.attach(5); // middle, yellow wire !facing arduino
+  paraServo.write(CLOSE);
+  delay(800);
   paraServo.detach(); 
-  relServo.detach();
 
   ss.begin(9600);
 
@@ -420,4 +417,3 @@ static void smartDelay(unsigned long ms) {
     readGPS();
   } while (millis() - start < ms);
 }
-
