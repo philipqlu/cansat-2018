@@ -160,12 +160,6 @@ void loop(){
               break;
     
       case 3: // stabilizing
-              ss.end();
-              heatServo.attach(9);
-              heatServo.write(OPEN);
-              delay(1000);
-              heatServo.detach();
-              ss.begin(9600);
               nextCycle = 200;
               break;
     
@@ -204,6 +198,12 @@ void getFlightState() {
   }
   else if (flightState == 2 && ((lastAlt - dataAlt) > DESCENT) && dataAlt > 400) {
     flightState = 3; //Stabilizing
+    ss.end();
+    heatServo.attach(9);
+    heatServo.write(OPEN);
+    delay(1000);
+    heatServo.detach();
+    ss.begin(9600);
   }
   else if (flightState == 3 && (dataAlt <= 300)) {
     flightState = 4; // Release
