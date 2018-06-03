@@ -32,7 +32,7 @@ double dataTiltgX, dataTiltgY, dataTiltgZ,
 uint8_t flightState;
 uint16_t nextCycle;
 double lastAlt, globalTimer;
-uint32_t timeBefore, timeNow, lastCycle, lastTelemCycle;//, init_time, t;
+uint32_t timeBefore, timeNow, lastCycle, lastTelemCycle;//, init_time, t; // used for simulation
 
 
 // BMP180
@@ -50,6 +50,7 @@ Servo heatServo, paraServo, relServo;
 #define CLOSE 0 
 #define ON 0 
 #define OFF 90
+#define SCREW 180
 
 // GPS
 TinyGPSPlus gps;
@@ -106,7 +107,7 @@ void setup() {
   flightState = 1;
   lastCycle = millis();
   lastTelemCycle = lastCycle;
-  //init_time = millis();
+  //init_time = millis(); // used for simulation
 }
 
 void loop(){
@@ -400,6 +401,11 @@ void Reset(){
   paraServo.write(CLOSE);
   delay(800);
   paraServo.detach(); 
+
+  relServo.attach(6);
+  relServo.write(SCREW); // used to attach the heatshield
+  delay(4000);
+  relServo.detach();
 
   ss.begin(9600);
 
